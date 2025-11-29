@@ -9,11 +9,11 @@ return new class extends Migration {
         Schema::create('loan_payments', function (Blueprint $table) {
             $table->id();
             $table->foreignId('loan_id')->constrained()->onDelete('cascade');
-            $table->foreignId('received_by')->constrained('users');
+            $table->foreignId('received_by')->nullable()->constrained('users'); // Make nullable
             $table->decimal('amount', 10, 2);
             $table->decimal('principal_amount', 10, 2);
             $table->decimal('interest_amount', 10, 2);
-            $table->date('payment_date');
+            $table->date('payment_date')->nullable(); // Make nullable for scheduled payments
             $table->date('due_date');
             $table->enum('status', ['pending', 'completed', 'late', 'partial'])->default('pending');
             $table->enum('payment_method', ['cash', 'bank_transfer', 'check', 'online', 'mobile_money']);

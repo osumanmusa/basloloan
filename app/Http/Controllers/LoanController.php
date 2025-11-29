@@ -8,6 +8,7 @@ use Inertia\Inertia;
 use Illuminate\Http\Request;
 use App\Models\LoanPayment;
 use Carbon\Carbon;
+use DB;
 
 class LoanController extends Controller
 {
@@ -58,10 +59,8 @@ class LoanController extends Controller
     ]);
 
     }
-
-    public function store(Request $request)
-    {
-
+public function store(Request $request)
+{
     $request->validate([
         'customer_id' => 'required|exists:customers,id',
         'amount' => 'required|numeric|min:100',
@@ -81,12 +80,11 @@ class LoanController extends Controller
         'purpose' => $request->purpose,
         'type' => $request->type,
         'purpose_description' => $request->purpose_description,
-        'status' => 'pending',
+        'status' => 'pending', // Always start as pending
     ]);
 
     return redirect()->route('loans.index')->with('success', 'Loan created successfully!');
-
-    }
+}
 
     public function show(Loan $loan)
     {
@@ -95,7 +93,6 @@ class LoanController extends Controller
             'loan' => $loan,
         ]);
     }
-
 public function edit(Loan $loan)
 {
     // Check if user owns the loan or is admin
@@ -105,7 +102,7 @@ public function edit(Loan $loan)
 
     // Only pending loans can be edited
     if ($loan->status !== 'pending') {
-        return redirect()->back()->with('error', 'Only pending loans can be edited.');
+        return redirect()->route('loans.show', $loan->id)->with('error', 'Only pending loans can be edited. This loan is already ' . $loan->status . '.');
     }
 
     $customers = Customer::select('id', 'first_name', 'last_name', 'email')
@@ -135,7 +132,7 @@ public function update(Request $request, Loan $loan)
 
     // Only pending loans can be edited
     if ($loan->status !== 'pending') {
-        return redirect()->back()->with('error', 'Only pending loans can be edited.');
+        return redirect()->route('loans.show', $loan->id)->with('error', 'Only pending loans can be edited. This loan is already ' . $loan->status . '.');
     }
 
     $request->validate([
@@ -162,7 +159,7 @@ public function destroy(Loan $loan)
 
     // Only pending loans can be deleted
     if ($loan->status !== 'pending') {
-        return redirect()->back()->with('error', 'Only pending loans can be deleted.');
+        return redirect()->back()->with('error', 'Only pending loans can be deleted. This loan is already ' . $loan->status . '.');
     }
 
     // Check if user owns the loan or is admin
@@ -174,56 +171,80 @@ public function destroy(Loan $loan)
 
     return redirect()->route('loans.index')->with('success', 'Loan deleted successfully!');
 }
-
-    public function approve(Loan $loan)
-    {
-        if ($loan->status !== 'pending') {
-            return redirect()->back()->with('error', 'Only pending loans can be approved.');
-        }
-
-        $loan->update([
-            'status' => 'approved',
-            'approved_by' => auth()->id(),
-            'approved_at' => now(),
-        ]);
-
-        return redirect()->back()->with('success', 'Loan approved successfully!');
+public function approve(Loan $loan)
+{
+    if (!auth()->user()->can('approve-loans')) {
+        abort(403);
     }
 
-    public function reject(Loan $loan)
-    {
-        if ($loan->status !== 'pending') {
-            return redirect()->back()->with('error', 'Only pending loans can be rejected.');
-        }
-
-        $loan->update([
-            'status' => 'rejected',
-            'approved_by' => auth()->id(),
-            'approved_at' => now(),
-        ]);
-
-        return redirect()->back()->with('success', 'Loan rejected successfully!');
+    // Only pending loans can be approved
+    if ($loan->status !== 'pending') {
+        return redirect()->back()->with('error', 'Only pending loans can be approved. This loan is already ' . $loan->status . '.');
     }
-        public function disburse(Loan $loan)
-    {
-        if ($loan->status !== 'approved') {
-            return redirect()->back()->with('error', 'Only approved loans can be disbursed.');
-        }
 
-        // Calculate loan details
+    $loan->update([
+        'status' => 'approved',
+        'approved_by' => auth()->id(),
+        'approved_at' => now(),
+    ]);
+
+    return redirect()->back()->with('success', 'Loan approved successfully!');
+}
+
+public function reject(Loan $loan)
+{
+    if (!auth()->user()->can('approve loans')) {
+        abort(403);
+    }
+
+    // Only pending loans can be rejected
+    if ($loan->status !== 'pending') {
+        return redirect()->back()->with('error', 'Only pending loans can be rejected. This loan is already ' . $loan->status . '.');
+    }
+
+    $loan->update([
+        'status' => 'rejected',
+        'approved_by' => auth()->id(),
+        'approved_at' => now(),
+    ]);
+
+    return redirect()->back()->with('success', 'Loan rejected successfully!');
+}
+ public function disburse(Loan $loan)
+{
+    if (!auth()->user()->can('disburse-loans')) {
+        abort(403);
+    }
+
+    if ($loan->status !== 'approved') {
+        return redirect()->back()->with('error', 'Only approved loans can be disbursed.');
+    }
+
+    try {
+        DB::beginTransaction();
+
+        // Calculate loan details using the model method
         $loan->calculateLoanDetails();
         
+        // Update loan status and dates
         $loan->update([
             'status' => 'disbursed',
             'disbursement_date' => now(),
             'due_date' => now()->addMonths($loan->term_months),
         ]);
 
-        // Create first payment record
+        // Create payment schedule
         $this->createPaymentSchedule($loan);
 
-        return redirect()->back()->with('success', 'Loan disbursed successfully!');
+        DB::commit();
+
+        return redirect()->back()->with('success', 'Loan disbursed successfully! Payment schedule created.');
+
+    } catch (\Exception $e) {
+        DB::rollBack();
+        return redirect()->back()->with('error', 'Error disbursing loan: ' . $e->getMessage());
     }
+}
 
     public function calculate(Request $request)
     {
@@ -280,22 +301,26 @@ public function destroy(Loan $loan)
             'amortization_schedule' => $amortizationSchedule,
         ];
     }
-
-    private function createPaymentSchedule(Loan $loan)
-    {
-        $paymentDate = now();
-        
-        for ($i = 1; $i <= $loan->term_months; $i++) {
-            LoanPayment::create([
-                'loan_id' => $loan->id,
-                'received_by' => auth()->id(),
-                'amount' => $loan->monthly_payment,
-                'due_date' => $paymentDate->copy()->addMonths($i),
-                'status' => 'pending',
-                'payment_method' => 'bank_transfer',
-            ]);
-        }
+private function createPaymentSchedule(Loan $loan)
+{
+    $paymentDate = now();
+    
+    for ($i = 1; $i <= $loan->term_months; $i++) {
+        LoanPayment::create([
+            'loan_id' => $loan->id,
+            'amount' => $loan->monthly_payment,
+            'principal_amount' => 0, // Will be calculated when payment is made
+            'interest_amount' => 0,  // Will be calculated when payment is made
+            'due_date' => $paymentDate->copy()->addMonths($i),
+            'payment_date' => null, // NULL for scheduled payments (now allowed)
+            'status' => 'pending',
+            'payment_method' => 'bank_transfer',
+            'received_by' => null, // NULL for scheduled payments (now allowed)
+            'reference_number' => 'SCH-' . $loan->id . '-' . str_pad($i, 3, '0', STR_PAD_LEFT),
+            'notes' => 'Scheduled payment #' . $i . ' for Loan #' . $loan->id,
+        ]);
     }
+}
 }
 
 

@@ -14,7 +14,7 @@ class RolePermissionSeeder extends Seeder
         // Reset cached roles and permissions
         app()[\Spatie\Permission\PermissionRegistrar::class]->forgetCachedPermissions();
 
-        // Create Permissions
+        // Create Permissions if they don't exist
         $permissions = [
             // Loan Management
             'view-loans', 'create-loans', 'edit-loans', 'delete-loans', 
@@ -41,39 +41,42 @@ class RolePermissionSeeder extends Seeder
         ];
 
         foreach ($permissions as $permission) {
-            Permission::create(['name' => $permission, 'guard_name' => 'web']);
+            Permission::firstOrCreate([
+                'name' => $permission,
+                'guard_name' => 'web'
+            ]);
         }
 
         // Create Roles and Assign Permissions
-        $admin = Role::create(['name' => 'admin', 'guard_name' => 'web']);
-        $admin->givePermissionTo(Permission::all());
+        $admin = Role::firstOrCreate(['name' => 'admin', 'guard_name' => 'web']);
+        $admin->syncPermissions(Permission::all());
 
-        $loanManager = Role::create(['name' => 'loan-manager', 'guard_name' => 'web']);
-        $loanManager->givePermissionTo([
+        $loanManager = Role::firstOrCreate(['name' => 'loan-manager', 'guard_name' => 'web']);
+        $loanManager->syncPermissions([
             'view-loans', 'create-loans', 'edit-loans', 'approve-loans', 'reject-loans', 'disburse-loans',
             'view-customers', 'create-customers', 'edit-customers',
             'view-payments', 'create-payments', 'edit-payments',
             'view-reports', 'export-data',
         ]);
 
-        $loanOfficer = Role::create(['name' => 'loan-officer', 'guard_name' => 'web']);
-        $loanOfficer->givePermissionTo([
+        $loanOfficer = Role::firstOrCreate(['name' => 'loan-officer', 'guard_name' => 'web']);
+        $loanOfficer->syncPermissions([
             'view-loans', 'create-loans', 'edit-loans',
             'view-customers', 'create-customers', 'edit-customers',
             'view-payments', 'create-payments',
         ]);
 
-        $customerService = Role::create(['name' => 'customer-service', 'guard_name' => 'web']);
-        $customerService->givePermissionTo([
+        $customerService = Role::firstOrCreate(['name' => 'customer-service', 'guard_name' => 'web']);
+        $customerService->syncPermissions([
             'view-loans', 'view-customers', 'view-payments', 'create-payments',
         ]);
 
-        $auditor = Role::create(['name' => 'auditor', 'guard_name' => 'web']);
-        $auditor->givePermissionTo([
+        $auditor = Role::firstOrCreate(['name' => 'auditor', 'guard_name' => 'web']);
+        $auditor->syncPermissions([
             'view-loans', 'view-customers', 'view-payments', 'view-reports', 'export-data',
         ]);
 
-        // Create admin user
+        // Create admin user if it doesn't exist
         $adminUser = User::firstOrCreate(
             ['email' => 'admin@loanapp.com'],
             [
@@ -84,7 +87,7 @@ class RolePermissionSeeder extends Seeder
         );
         $adminUser->assignRole('admin');
 
-        // Create loan manager user
+        // Create loan manager user if it doesn't exist
         $managerUser = User::firstOrCreate(
             ['email' => 'manager@loanapp.com'],
             [

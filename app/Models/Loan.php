@@ -6,6 +6,7 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Support\Facades\DB;
 
 class Loan extends Model
 {
@@ -46,5 +47,59 @@ class Loan extends Model
     public function payments(): HasMany
     {
         return $this->hasMany(LoanPayment::class);
+    }
+
+    /**
+     * Calculate loan details including monthly payment, total amount, etc.
+     */
+    public function calculateLoanDetails(): void
+    {
+        $principal = (float) $this->amount;
+        $annualRate = (float) $this->interest_rate;
+        $termMonths = (int) $this->term_months;
+
+        $monthlyRate = $annualRate / 100 / 12;
+        
+        if ($monthlyRate > 0) {
+            $monthlyPayment = $principal * ($monthlyRate * pow(1 + $monthlyRate, $termMonths)) / (pow(1 + $monthlyRate, $termMonths) - 1);
+        } else {
+            $monthlyPayment = $principal / $termMonths;
+        }
+
+        $totalPayment = $monthlyPayment * $termMonths;
+        $totalInterest = $totalPayment - $principal;
+
+        // Update the loan with calculated values
+        $this->update([
+            'monthly_payment' => round($monthlyPayment, 2),
+            'total_amount' => round($totalPayment, 2),
+            'remaining_balance' => round($principal, 2), // Initially, remaining balance equals principal
+        ]);
+    }
+
+    /**
+     * Check if loan can be disbursed
+     */
+    public function canBeDisbursed(): bool
+    {
+        return $this->status === 'approved' && $this->remaining_balance === null;
+    }
+
+    /**
+     * Get the next due date for payment
+     */
+    public function getNextDueDate(): ?string
+    {
+        if (!$this->disbursement_date) {
+            return null;
+        }
+
+        $lastPayment = $this->payments()->latest('due_date')->first();
+        
+        if ($lastPayment) {
+            return \Carbon\Carbon::parse($lastPayment->due_date)->addMonth()->format('Y-m-d');
+        }
+
+        return \Carbon\Carbon::parse($this->disbursement_date)->addMonth()->format('Y-m-d');
     }
 }

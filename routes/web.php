@@ -31,8 +31,17 @@ Route::middleware('auth')->group(function () {
 
     // Payments
     Route::resource('payments', PaymentController::class);
-    Route::post('/payments/bulk', [PaymentController::class, 'bulkCreate'])->name('payments.bulk');
+    Route::put('/payments/{payment}/complete', [PaymentController::class, 'complete'])->name('payments.complete');
 
+// Bulk payments (placeholder for now)
+Route::get('/payments/bulk/create', [BulkPaymentController::class, 'create'])->name('payments.bulk.create');
+Route::post('/payments/bulk', [BulkPaymentController::class, 'store'])->name('payments.bulk.store');
+// Payments
+Route::post('/payments/{payment}/process-scheduled', [PaymentController::class, 'processScheduledPayment'])->name('payments.process-scheduled');
+Route::get('/payments/{payment}/receipt', [PaymentController::class, 'receipt'])->name('payments.receipt');
+Route::get('/payments/{payment}/export-pdf', [PaymentController::class, 'exportPdf'])->name('payments.export.pdf');
+Route::get('/loans/{loan}/payments', [PaymentController::class, 'loanPayments'])->name('loans.payments');
+Route::get('/loans/{loan}/export-payments', [PaymentController::class, 'exportLoanPayments'])->name('loans.export.payments');
     // User Management
     Route::resource('users', UserController::class)->middleware('permission:view-users');
     Route::put('/users/{user}/roles', [UserController::class, 'updateRoles'])->name('users.roles.update');
