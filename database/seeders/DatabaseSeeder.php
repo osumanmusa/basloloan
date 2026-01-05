@@ -4,6 +4,10 @@
 namespace Database\Seeders;
 
 use Illuminate\Database\Seeder;
+use App\Models\User;
+use App\Models\Customer;
+use App\Models\Loan;
+use App\Models\LoanPaymentSchedule;
 
 class DatabaseSeeder extends Seeder
 {
@@ -12,5 +16,8 @@ class DatabaseSeeder extends Seeder
         $this->call([
             RolePermissionSeeder::class,
         ]);
+ 
+   
     }
+    
 }

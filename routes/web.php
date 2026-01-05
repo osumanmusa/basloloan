@@ -11,6 +11,7 @@ use App\Http\Controllers\ReportController;
 use App\Http\Controllers\LoanCalculatorController;
 use Illuminate\Support\Facades\Route;
 use App\Http\Controllers\BulkPaymentController;
+use App\Http\Controllers\PaymentScheduleController;
 
 Route::get('/', function () {
     return redirect('/dashboard');
@@ -56,9 +57,10 @@ Route::get('/loans/{loan}/export-payments', [PaymentController::class, 'exportLo
     Route::get('/reports/analytics', [ReportController::class, 'analytics'])->name('reports.analytics');
 
     // Loan Calculator
-    Route::get('/calculator', [LoanCalculatorController::class, 'index'])->name('calculator.index');
-    Route::post('/calculator/calculate', [LoanCalculatorController::class, 'calculate'])->name('calculator.calculate');
-
+    // Route::get('/calculator', [LoanCalculatorController::class, 'index'])->name('calculator.index');
+    // Route::post('/calculator/calculate', [LoanCalculatorController::class, 'calculate'])->name('calculator.calculate');
+Route::get('/calculator', [LoanCalculatorController::class, 'index'])->name('calculator.index');
+Route::post('/calculator/calculate', [LoanCalculatorController::class, 'calculate'])->name('calculator.calculate');
     
     // Role Management (Admin only)
 
@@ -73,6 +75,12 @@ Route::get('/payments/bulk', [BulkPaymentController::class, 'create'])->name('pa
     Route::get('/payments/bulk/create', [BulkPaymentController::class, 'create'])->name('payments.bulk.create');
     Route::post('/payments/bulk', [BulkPaymentController::class, 'store'])->name('payments.bulk.store');
     Route::post('/payments/bulk/process', [BulkPaymentController::class, 'processBatch'])->name('payments.bulk.process');
+    Route::resource('payment-schedules', PaymentScheduleController::class);
+    // routes/web.php
+// Route::get('/payment-schedules', [PaymentScheduleController::class, 'index'])->name('payment-schedules.index');
+Route::get('/payment-schedules/loan/{loan}', [PaymentScheduleController::class, 'loanSchedules'])->name('payment-schedules.loan');
+// Route::get('/payment-schedules/{schedule}', [PaymentScheduleController::class, 'show'])->name('payment-schedules.show');
+
 });
 
 require __DIR__.'/auth.php';

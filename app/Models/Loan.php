@@ -102,4 +102,51 @@ class Loan extends Model
 
         return \Carbon\Carbon::parse($this->disbursement_date)->addMonth()->format('Y-m-d');
     }
+    // In Loan.php model
+public function paymentSchedules(): HasMany
+{
+    return $this->hasMany(LoanPaymentSchedule::class);
+}
+
+public function generatePaymentSchedule(): void
+{
+    $principal = (float) $this->amount;
+    $annualRate = (float) $this->interest_rate;
+    $termMonths = (int) $this->term_months;
+
+    $monthlyRate = $annualRate / 100 / 12;
+    
+    if ($monthlyRate > 0) {
+        $monthlyPayment = $principal * ($monthlyRate * pow(1 + $monthlyRate, $termMonths)) / (pow(1 + $monthlyRate, $termMonths) - 1);
+    } else {
+        $monthlyPayment = $principal / $termMonths;
+    }
+
+    $remainingBalance = $principal;
+    $paymentDate = now();
+
+    for ($i = 1; $i <= $termMonths; $i++) {
+        $interestAmount = $remainingBalance * $monthlyRate;
+        $principalAmount = $monthlyPayment - $interestAmount;
+        
+        // For the last payment, adjust to ensure we don't overpay
+        if ($i === $termMonths) {
+            $principalAmount = $remainingBalance;
+            $monthlyPayment = $principalAmount + $interestAmount;
+        }
+
+        LoanPaymentSchedule::create([
+            'loan_id' => $this->id,
+            'installment_number' => $i,
+            'due_amount' => round($monthlyPayment, 2),
+            'principal_amount' => round($principalAmount, 2),
+            'interest_amount' => round($interestAmount, 2),
+            'due_date' => $paymentDate->copy()->addMonths($i),
+            'status' => 'pending',
+            'notes' => "Installment #{$i} for Loan #{$this->id}",
+        ]);
+
+        $remainingBalance -= $principalAmount;
+    }
+}
 }

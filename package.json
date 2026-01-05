@@ -32,6 +32,7 @@
         "html2canvas": "^1.4.1",
         "jspdf": "^3.0.4",
         "laravel-echo": "^2.2.6",
+        "lodash": "^4.17.21",
         "pusher-js": "^8.4.0",
         "vue-echarts": "^8.0.1",
         "xlsx": "^0.18.5"

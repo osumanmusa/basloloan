@@ -57,6 +57,17 @@
 
                         <!-- Payments -->
                         <NavLink 
+                            :href="route('payment-schedules.index')" 
+                            :active="route().current('payment-schedules.*')" 
+                            class="group flex items-center px-4 py-3 text-sm font-medium rounded-md transition-colors duration-200"
+                            :class="route().current('payment-schedules.*') ? 'bg-blue-50 text-blue-700 border-r-2 border-blue-700' : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900'"
+                        >
+                            <svg class="w-5 h-5 mr-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v1m0 6v1m0-1v1m6-10h2m-10 0h2m-1 14h1"/>
+                            </svg>
+                            Payment Schedules
+                        </NavLink>
+                        <NavLink 
                             :href="route('payments.index')" 
                             :active="route().current('payments.*')" 
                             class="group flex items-center px-4 py-3 text-sm font-medium rounded-md transition-colors duration-200"

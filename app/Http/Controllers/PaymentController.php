@@ -4,6 +4,8 @@ namespace App\Http\Controllers;
 
 use App\Models\LoanPayment;
 use App\Models\Loan;
+use App\Models\Customer;
+use App\Models\LoanPaymentSchedule; 
 use Inertia\Inertia;
 use Illuminate\Http\Request;
 use Carbon\Carbon;
@@ -20,43 +22,72 @@ class PaymentController extends Controller
         // $this->middleware('permission:verify payments')->only('complete');
     }
 
-    public function index(Request $request)
-    {
-        $payments = LoanPayment::with(['loan.customer', 'receiver'])
-            ->when($request->search, function($query, $search) {
-                $query->where(function($q) use ($search) {
-                    $q->whereHas('loan.customer', function($customerQuery) use ($search) {
-                        $customerQuery->where('first_name', 'like', "%{$search}%")
-                            ->orWhere('last_name', 'like', "%{$search}%")
-                            ->orWhere('email', 'like', "%{$search}%");
-                    })
-                    ->orWhere('reference_number', 'like', "%{$search}%")
-                    ->orWhere('id', 'like', "%{$search}%");
-                });
-            })
-            ->when($request->status, function($query, $status) {
-                $query->where('status', $status);
-            })
-            ->when($request->payment_method, function($query, $method) {
-                $query->where('payment_method', $method);
-            })
-            ->when($request->date_from, function($query, $dateFrom) {
-                $query->whereDate('payment_date', '>=', $dateFrom)
-                      ->orWhereDate('due_date', '>=', $dateFrom);
-            })
-            ->when($request->date_to, function($query, $dateTo) {
-                $query->whereDate('payment_date', '<=', $dateTo)
-                      ->orWhereDate('due_date', '<=', $dateTo);
-            })
-            ->latest()
-            ->paginate(15)
-            ->withQueryString();
-
-        return Inertia::render('Payments/index', [
-            'payments' => $payments,
-            'filters' => $request->only(['search', 'status', 'payment_method', 'date_from', 'date_to']),
-        ]);
+  public function index(Request $request)
+{
+    // Check permission manually
+    if (!auth()->user()->can('view-payments')) {
+        abort(403);
     }
+
+    $payments = LoanPayment::with(['loan.customer', 'receiver', 'schedule'])
+        ->when($request->search, function($query, $search) {
+            $query->where(function($q) use ($search) {
+                $q->whereHas('loan.customer', function($customerQuery) use ($search) {
+                    $customerQuery->where('first_name', 'like', "%{$search}%")
+                        ->orWhere('last_name', 'like', "%{$search}%")
+                        ->orWhere('email', 'like', "%{$search}%");
+                })
+                ->orWhere('reference_number', 'like', "%{$search}%")
+                ->orWhere('id', 'like', "%{$search}%");
+            });
+        })
+        ->when($request->status, function($query, $status) {
+            $query->where('status', $status);
+        })
+        ->when($request->payment_method, function($query, $method) {
+            $query->where('payment_method', $method);
+        })
+        ->when($request->payment_type, function($query, $type) {
+            $query->where('payment_type', $type);
+        })
+        ->when($request->date_from, function($query, $dateFrom) {
+            $query->whereDate('payment_date', '>=', $dateFrom);
+        })
+        ->when($request->date_to, function($query, $dateTo) {
+            $query->whereDate('payment_date', '<=', $dateTo);
+        })
+        ->latest()
+        ->paginate(15)
+        ->withQueryString();
+
+    // Get stats for the dashboard
+    $stats = [
+        'total_payments' => LoanPayment::count(),
+        'completed_payments' => LoanPayment::where('status', 'completed')->count(),
+        'pending_payments' => LoanPayment::where('status', 'pending')->count(),
+        'overdue_payments' => LoanPaymentSchedule::where('status', 'pending')
+            ->whereDate('due_date', '<', now())
+            ->count(),
+    ];
+
+    // Get available loans for filter
+    $availableLoans = Loan::whereIn('status', ['active', 'disbursed'])
+        ->with('customer')
+        ->get(['id', 'customer_id'])
+        ->map(function($loan) {
+            return [
+                'id' => $loan->id,
+                'customer' => $loan->customer
+            ];
+        });
+
+    return Inertia::render('Payments/index', [
+        'payments' => $payments,
+        'filters' => $request->only(['search', 'status', 'payment_method', 'payment_type', 'date_from', 'date_to']),
+        'stats' => $stats,
+        'availableLoans' => $availableLoans,
+    ]);
+}
 
     // public function create()
     // {
@@ -86,10 +117,10 @@ public function create()
         abort(403);
     }
 
-    // Get active loans with their customers and remaining balances
+    // Get active loans with their payment schedules (only pending/overdue)
     $loans = Loan::whereIn('status', ['active', 'disbursed'])
-        ->with(['customer', 'payments' => function($query) {
-            $query->where('status', 'pending')->orderBy('due_date');
+        ->with(['customer', 'paymentSchedules' => function($query) {
+            $query->whereIn('status', ['pending', 'overdue'])->orderBy('due_date');
         }])
         ->where('remaining_balance', '>', 0)
         ->get()
@@ -100,105 +131,117 @@ public function create()
                 'remaining_balance' => $loan->remaining_balance,
                 'monthly_payment' => $loan->monthly_payment,
                 'status' => $loan->status,
-                'scheduled_payments' => $loan->payments->map(function($payment) {
+                'payment_schedules' => $loan->paymentSchedules->map(function($schedule) {
                     return [
-                        'id' => $payment->id,
-                        'amount' => $payment->amount,
-                        'due_date' => $payment->due_date,
-                        'principal_amount' => $payment->principal_amount,
-                        'interest_amount' => $payment->interest_amount,
-                        'status' => $payment->status,
+                        'id' => $schedule->id,
+                        'installment_number' => $schedule->installment_number,
+                        'due_amount' => $schedule->due_amount,
+                        'principal_amount' => $schedule->principal_amount,
+                        'interest_amount' => $schedule->interest_amount,
+                        'due_date' => $schedule->due_date,
+                        'status' => $schedule->status,
+                        'paid_amount' => $schedule->paid_amount,
+                        'remaining_amount' => $schedule->remaining_amount,
                     ];
-                })
+                })->toArray()
             ];
+        })->filter(function($loan) {
+            // Only include loans that have pending/overdue schedules
+            return count($loan['payment_schedules']) > 0;
         });
 
     return Inertia::render('Payments/Create', [
         'loans' => $loans,
     ]);
 }
-     public function store(Request $request)
-    {
-        // Check permission manually
-        if (!auth()->user()->can('create payments')) {
-            abort(403);
-        }
+public function store(Request $request)
+{
+    // Check permission manually
+    if (!auth()->user()->can('create-payments')) {
+        abort(403);
+    }
 
-        $request->validate([
-            'loan_id' => 'required|exists:loans,id',
-            'amount' => 'required|numeric|min:0.01',
-            'principal_amount' => 'nullable|numeric|min:0',
-            'interest_amount' => 'nullable|numeric|min:0',
-            'payment_date' => 'required|date',
-            'due_date' => 'nullable|date',
-            'payment_method' => 'required|in:cash,bank_transfer,check,mobile_money,online',
-            'reference_number' => 'nullable|string|max:100',
-            'notes' => 'nullable|string|max:500',
-            'status' => 'required|in:pending,completed,late,partial',
+    $request->validate([
+        'loan_id' => 'required|exists:loans,id',
+        'loan_payment_schedule_id' => 'nullable|exists:loan_payment_schedules,id',
+        'amount' => 'required|numeric|min:0.01',
+        'principal_amount' => 'nullable|numeric|min:0',
+        'interest_amount' => 'nullable|numeric|min:0',
+        'payment_date' => 'required|date',
+        'payment_method' => 'required|in:cash,bank_transfer,check,mobile_money,online',
+        'payment_type' => 'required|in:scheduled,adhoc,early_settlement',
+        'reference_number' => 'nullable|string|max:100',
+        'notes' => 'nullable|string|max:500',
+        'status' => 'required|in:pending,completed,late,partial',
+    ]);
+
+    $loan = Loan::with('customer')->findOrFail($request->loan_id);
+    
+    try {
+        DB::beginTransaction();
+
+        // Create payment
+        $payment = LoanPayment::create([
+            'loan_id' => $request->loan_id,
+            'loan_payment_schedule_id' => $request->loan_payment_schedule_id,
+            'received_by' => auth()->id(),
+            'amount' => $request->amount,
+            'principal_amount' => $request->principal_amount ?? 0,
+            'interest_amount' => $request->interest_amount ?? 0,
+            'payment_date' => $request->payment_date,
+            'status' => $request->status,
+            'payment_method' => $request->payment_method,
+            'payment_type' => $request->payment_type,
+            'reference_number' => $request->reference_number,
+            'notes' => $request->notes,
         ]);
 
-        $loan = Loan::with('customer')->findOrFail($request->loan_id);
-        
-        // Auto-calculate principal/interest if not provided
-        if (!$request->principal_amount && !$request->interest_amount && $loan->remaining_balance > 0) {
-            $principalRatio = $loan->remaining_balance / $loan->amount;
-            $principalAmount = $request->amount * $principalRatio;
-            $interestAmount = $request->amount * (1 - $principalRatio);
+        // Update loan balance if payment is completed
+        if ($request->status === 'completed' && $request->principal_amount > 0) {
+            $loan->decrement('remaining_balance', $request->principal_amount);
             
-            // Update the request with calculated values
-            $request->merge([
-                'principal_amount' => round($principalAmount, 2),
-                'interest_amount' => round($interestAmount, 2)
-            ]);
-        }
-
-        // Validate payment doesn't exceed remaining balance
-        if ($request->principal_amount > $loan->remaining_balance) {
-            return redirect()->back()->with('error', 'Principal amount exceeds remaining balance. Remaining: $' . number_format($loan->remaining_balance, 2));
-        }
-
-        try {
-            DB::beginTransaction();
-
-            // Create payment
-            $payment = LoanPayment::create([
-                'loan_id' => $request->loan_id,
-                'received_by' => auth()->id(),
-                'amount' => $request->amount,
-                'principal_amount' => $request->principal_amount ?? 0,
-                'interest_amount' => $request->interest_amount ?? 0,
-                'payment_date' => $request->payment_date,
-                'due_date' => $request->due_date,
-                'status' => $request->status,
-                'payment_method' => $request->payment_method,
-                'reference_number' => $request->reference_number,
-                'notes' => $request->notes,
-            ]);
-
-            // Update loan balance if payment is completed
-            if ($request->status === 'completed' && $request->principal_amount > 0) {
-                $loan->decrement('remaining_balance', $request->principal_amount);
+            // Check if loan is fully paid
+            if ($loan->remaining_balance <= 0) {
+                $loan->update(['status' => 'completed']);
                 
-                // Check if loan is fully paid
-                if ($loan->remaining_balance <= 0) {
-                    $loan->update(['status' => 'completed']);
+                // Update all pending payment schedules
+                LoanPaymentSchedule::where('loan_id', $loan->id)
+                    ->where('status', 'pending')
+                    ->update(['status' => 'cancelled']);
+            }
+        }
+
+        // Update payment schedule if this is a scheduled payment
+        if ($request->loan_payment_schedule_id && $request->status === 'completed') {
+            $schedule = LoanPaymentSchedule::find($request->loan_payment_schedule_id);
+            if ($schedule) {
+                $paidAmount = $schedule->payments()->where('status', 'completed')->sum('amount');
+                if ($paidAmount >= $schedule->due_amount) {
+                    $schedule->update(['status' => 'paid']);
                     
-                    // Update all pending payments for this loan
-                    LoanPayment::where('loan_id', $loan->id)
-                        ->where('status', 'pending')
-                        ->update(['status' => 'cancelled']);
+                    // Return success response with redirect
+                    DB::commit();
+                    return redirect()->route('payments.index')
+                        ->with('success', 'Payment recorded successfully! Scheduled payment marked as paid.');
                 }
             }
-
-            DB::commit();
-
-            return redirect()->route('payments.show', $payment->id)->with('success', 'Payment recorded successfully!');
-
-        } catch (\Exception $e) {
-            DB::rollBack();
-            return redirect()->back()->with('error', 'Error recording payment: ' . $e->getMessage());
         }
+
+        DB::commit();
+
+        // Return success response with redirect
+        return redirect()->route('payments.index')
+            ->with('success', 'Payment recorded successfully!');
+
+    } catch (\Exception $e) {
+        DB::rollBack();
+        
+        // Return error response with redirect back
+        return redirect()->back()
+            ->with('error', 'Error recording payment: ' . $e->getMessage())
+            ->withInput();
     }
+}
 
     public function show(LoanPayment $payment)
     {

@@ -10,12 +10,18 @@ class Customer extends Model
 {
     use HasFactory;
 
-    protected $fillable = [
-        'first_name', 'last_name', 'email', 'phone', 'address', 'city', 'state',
-        'zip_code', 'date_of_birth', 'id_number', 'monthly_income', 'employment_status',
-        'employment_details', 'credit_score'
-    ];
-
+    // protected $fillable = [
+    //     'first_name', 'last_name', 'email', 'phone', 'address', 'city', 'state',
+    //     'zip_code', 'date_of_birth', 'id_number', 'monthly_income', 'employment_status',
+    //     'employment_details', 'credit_score','ghana_card','ghana_card_front','ghana_card_back','passport_photo'
+    // ];
+protected $fillable = [
+    'first_name', 'last_name', 'email', 'phone', 'address',
+    'city', 'state', 'zip_code', 'date_of_birth', 'id_type',
+    'id_number', 'passport_picture', 'id_front', 'id_back',
+    'monthly_income', 'employment_status', 'employment_details',
+    'credit_score'
+];
     protected $casts = [
         'date_of_birth' => 'date',
         'monthly_income' => 'decimal:2',

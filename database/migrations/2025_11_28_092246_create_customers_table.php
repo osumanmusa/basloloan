@@ -17,7 +17,13 @@ return new class extends Migration {
             $table->string('state');
             $table->string('zip_code');
             $table->date('date_of_birth');
-            $table->string('id_number')->unique();
+ 
+    $table->string('id_type')->nullable();
+    $table->string('id_number')->nullable();
+    $table->string('passport_picture')->nullable();
+    $table->string('id_front')->nullable();
+    $table->string('id_back')->nullable();
+
             $table->decimal('monthly_income', 10, 2);
             $table->enum('employment_status', ['employed', 'self-employed', 'unemployed', 'retired']);
             $table->text('employment_details')->nullable();

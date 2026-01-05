@@ -5,20 +5,23 @@ namespace App\Http\Controllers;
 use App\Models\Loan;
 use App\Models\Customer;
 use App\Models\LoanPayment;
+use App\Models\LoanPaymentSchedule; 
 use Inertia\Inertia;
 use Illuminate\Http\Request;
 use Carbon\Carbon;
 
 class DashboardController extends Controller
 {
-    public function index()
+   public function index()
     {
         // Basic stats
         $stats = [
             'total_loans' => Loan::count(),
             'total_customers' => Customer::count(),
             'pending_loans' => Loan::where('status', 'pending')->count(),
-            'overdue_payments' => LoanPayment::where('status', 'late')->count(),
+            'overdue_payments' => LoanPaymentSchedule::where('status', 'pending')
+                ->whereDate('due_date', '<', now())
+                ->count(),
             'total_portfolio' => Loan::whereIn('status', ['approved', 'disbursed', 'active'])->sum('amount'),
             'active_loans' => Loan::whereIn('status', ['disbursed', 'active'])->count(),
             'monthly_revenue' => LoanPayment::where('status', 'completed')
@@ -49,22 +52,22 @@ class DashboardController extends Controller
                 ];
             });
 
-        // Upcoming payments (simplified for now)
-        $upcomingPayments = LoanPayment::with('loan.customer')
+        // Upcoming payments - FIXED: Use loan_payment_schedules table
+        $upcomingPayments = LoanPaymentSchedule::with(['loan.customer'])
             ->where('status', 'pending')
             ->whereDate('due_date', '<=', now()->addDays(7))
             ->orderBy('due_date')
             ->take(5)
             ->get()
-            ->map(function ($payment) {
+            ->map(function ($schedule) {
                 return [
-                    'id' => $payment->id,
-                    'amount' => $payment->amount,
-                    'due_date' => $payment->due_date->format('M d, Y'),
+                    'id' => $schedule->id,
+                    'amount' => $schedule->due_amount,
+                    'due_date' => $schedule->due_date->format('M d, Y'),
                     'loan' => [
-                        'id' => $payment->loan->id,
+                        'id' => $schedule->loan->id,
                         'customer' => [
-                            'full_name' => $payment->loan->customer->first_name . ' ' . $payment->loan->customer->last_name,
+                            'full_name' => $schedule->loan->customer->first_name . ' ' . $schedule->loan->customer->last_name,
                         ],
                     ],
                 ];
@@ -85,6 +88,17 @@ class DashboardController extends Controller
             'performanceMetrics' => $performanceMetrics,
         ]);
     }
+
+    // ... rest of your methods ...
+
+    // private function calculateCollectionRate()
+    // {
+    //     // FIXED: Use loan_payment_schedules for due amounts
+    //     $totalDue = LoanPaymentSchedule::whereIn('status', ['pending', 'overdue'])->sum('due_amount');
+    //     $collected = LoanPayment::where('status', 'completed')->sum('amount');
+
+    //     return $totalDue > 0 ? round(($collected / $totalDue) * 100, 2) : 100;
+    // }
 
     private function getLoanStatusDistribution()
     {

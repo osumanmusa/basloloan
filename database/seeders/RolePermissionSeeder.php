@@ -6,6 +6,10 @@ use Illuminate\Database\Seeder;
 use Spatie\Permission\Models\Role;
 use Spatie\Permission\Models\Permission;
 use App\Models\User;
+use App\Models\Customer;
+use App\Models\Loan;
+use App\Models\LoanPaymentSchedule;
+use Illuminate\Support\Facades\Hash;
 
 class RolePermissionSeeder extends Seeder
 {
@@ -98,6 +102,71 @@ class RolePermissionSeeder extends Seeder
         );
         $managerUser->assignRole('loan-manager');
 
+
+        // Create a test user (uncommented and fixed)
+        $user = User::create([
+            'name' => 'Admin User',
+            'email' => 'admin@example.com',
+            'password' => Hash::make('password'), // Add password
+            'email_verified_at' => now(),
+        ]);       
+        
+        $user->assignRole('admin');
+
+
+        // Create a test customer
+        $customer = Customer::create([
+            'first_name' => 'John',
+            'last_name' => 'Doe',
+            'email' => 'john.doe@example.com',
+            'phone' => '+1234567890',
+            'address' => '123 Main St',
+            'city' => 'New York',
+            'state' => 'NY',
+            'zip_code' => '10001',
+            'date_of_birth' => '1985-05-15',
+            'id_number' => 'ID123456789',
+            'monthly_income' => 5000.00,
+            'employment_status' => 'employed',
+            'employment_details' => 'Software Developer at Tech Corp',
+            'credit_score' => 750,
+        ]);
+
+        // Create a test loan
+        $loan = Loan::create([
+            'customer_id' => $customer->id,
+            'created_by' => $user->id, // Now this will work
+            'amount' => 10000.00,
+            'interest_rate' => 5.0,
+            'term_months' => 12,
+            'purpose' => 'debt_consolidation',
+            'type' => 'personal',
+            'status' => 'active',
+            'monthly_payment' => 856.07,
+            'total_amount' => 10272.84,
+            'remaining_balance' => 10000.00,
+            'disbursement_date' => now()->subDays(30),
+            'due_date' => now()->addMonths(12),
+        ]);
+
+        // Create payment schedules for the loan
+        for ($i = 1; $i <= 12; $i++) {
+            LoanPaymentSchedule::create([
+                'loan_id' => $loan->id,
+                'installment_number' => $i,
+                'due_amount' => 856.07,
+                'principal_amount' => 814.40,
+                'interest_amount' => 41.67,
+                'due_date' => now()->addMonths($i),
+                'status' => 'pending',
+                'notes' => "Monthly installment #{$i}",
+            ]);
+        }
+
+        $this->command->info('Test data created successfully!');
+        $this->command->info('Admin User: admin@example.com / password: password');
+        $this->command->info('Customer: John Doe');
+        $this->command->info('Loan with 12 payment schedules created.');
         $this->command->info('Roles and permissions seeded successfully!');
         $this->command->info('Admin: admin@loanapp.com / password');
         $this->command->info('Manager: manager@loanapp.com / password');

@@ -27,7 +27,26 @@
                             {{ $page.props.flash.error }}
                         </div>
 
-                        <form @submit.prevent="submit">
+                        <!-- No Loans Available Message -->
+                        <div v-if="loans.length === 0" class="mb-6 bg-yellow-100 border border-yellow-400 text-yellow-700 px-4 py-3 rounded">
+                            <div class="flex items-center">
+                                <svg class="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L4.082 16.5c-.77.833.192 2.5 1.732 2.5z"/>
+                                </svg>
+                                <div>
+                                    <p class="font-semibold">No loans available for payment</p>
+                                    <p class="text-sm">There are no active loans with pending scheduled payments.</p>
+                                    <p class="text-sm mt-1">All scheduled payments may have been completed or there are no disbursed loans.</p>
+                                </div>
+                            </div>
+                            <div class="mt-4">
+                                <PrimaryButton @click="$inertia.visit(route('payments.index'))">
+                                    View All Payments
+                                </PrimaryButton>
+                            </div>
+                        </div>
+
+                        <form @submit.prevent="submit" v-if="loans.length > 0">
                             <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
                                 <!-- Loan Selection -->
                                 <div class="md:col-span-2">
@@ -50,7 +69,7 @@
                                             Loan #{{ loan.id }} - {{ loan.customer.first_name }} {{ loan.customer.last_name }} 
                                             - ${{ loan.remaining_balance.toLocaleString() }} remaining
                                             ({{ loan.status }})
-                                            {{ loan.scheduled_payments.length > 0 ? `- ${loan.scheduled_payments.length} scheduled payments` : '' }}
+                                            - {{ loan.payment_schedules.length }} pending payment(s)
                                         </option>
                                     </select>
                                     <p v-if="form.errors.loan_id" class="mt-1 text-sm text-red-600">
@@ -89,29 +108,31 @@
                                     </div>
                                     
                                     <!-- Scheduled Payments Info -->
-                                    <div class="mt-4" v-if="selectedLoan.scheduled_payments.length > 0">
-                                        <h4 class="text-md font-medium text-gray-900 mb-2">Scheduled Payments</h4>
+                                    <div class="mt-4" v-if="selectedLoan.payment_schedules && selectedLoan.payment_schedules.length > 0">
+                                        <h4 class="text-md font-medium text-gray-900 mb-2">Pending Scheduled Payments</h4>
                                         <div class="grid grid-cols-1 md:grid-cols-2 gap-2 text-sm">
-                                            <div v-for="payment in selectedLoan.scheduled_payments" :key="payment.id" 
-                                                 class="bg-white p-2 rounded border">
+                                            <div v-for="schedule in selectedLoan.payment_schedules" :key="schedule.id" 
+                                                 class="bg-white p-2 rounded border"
+                                                 :class="{'border-red-300 bg-red-50': schedule.status === 'overdue'}">
                                                 <div class="flex justify-between items-center">
-                                                    <span class="font-medium">Due: {{ formatDate(payment.due_date) }}</span>
-                                                    <span class="text-green-600 font-semibold">${{ payment.amount.toLocaleString() }}</span>
+                                                    <span class="font-medium">Due: {{ formatDate(schedule.due_date) }}</span>
+                                                    <span class="text-green-600 font-semibold">${{ schedule.due_amount.toLocaleString() }}</span>
                                                 </div>
                                                 <div class="text-xs text-gray-500 mt-1">
-                                                    Principal: ${{ payment.principal_amount.toLocaleString() }} | 
-                                                    Interest: ${{ payment.interest_amount.toLocaleString() }}
+                                                    Installment #{{ schedule.installment_number }} | 
+                                                    Principal: ${{ schedule.principal_amount.toLocaleString() }} | 
+                                                    Interest: ${{ schedule.interest_amount.toLocaleString() }}
+                                                </div>
+                                                <div class="text-xs mt-1" :class="schedule.status === 'overdue' ? 'text-red-500 font-semibold' : 'text-yellow-500'">
+                                                    Status: {{ formatStatus(schedule.status) }}
                                                 </div>
                                             </div>
                                         </div>
                                     </div>
-                                    <div class="mt-4 text-yellow-600 text-sm" v-else>
-                                        <p>No scheduled payments found for this loan.</p>
-                                    </div>
                                 </div>
 
                                 <!-- Payment Type Selection (Only show if scheduled payments exist) -->
-                                <div class="md:col-span-2" v-if="selectedLoan && selectedLoan.scheduled_payments.length > 0">
+                                <div class="md:col-span-2" v-if="selectedLoan && selectedLoan.payment_schedules && selectedLoan.payment_schedules.length > 0">
                                     <label class="block text-sm font-medium text-gray-700 mb-2">
                                         Payment Type
                                     </label>
@@ -144,28 +165,35 @@
                                 </div>
 
                                 <!-- Scheduled Payment Selection -->
-                                <div class="md:col-span-2" v-if="paymentType === 'scheduled' && selectedLoan && selectedLoan.scheduled_payments.length > 0">
+                                <div class="md:col-span-2" v-if="paymentType === 'scheduled' && selectedLoan && selectedLoan.payment_schedules && selectedLoan.payment_schedules.length > 0">
                                     <label class="block text-sm font-medium text-gray-700 mb-2">
-                                        Select Scheduled Payment to Pay
+                                        Select Scheduled Payment to Pay *
                                     </label>
                                     <select 
-                                        v-model="selectedScheduledPaymentId"
-                                        @change="onScheduledPaymentChange"
+                                        v-model="selectedScheduleId"
+                                        @change="onScheduleChange"
                                         class="w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
+                                        :class="{ 'border-red-300': form.errors.loan_payment_schedule_id }"
                                         required
                                     >
                                         <option value="">Select a scheduled payment</option>
                                         <option 
-                                            v-for="payment in selectedLoan.scheduled_payments" 
-                                            :key="payment.id" 
-                                            :value="payment.id"
+                                            v-for="schedule in selectedLoan.payment_schedules" 
+                                            :key="schedule.id" 
+                                            :value="schedule.id"
                                         >
-                                            Due: {{ formatDate(payment.due_date) }} - Amount: ${{ payment.amount.toLocaleString() }}
-                                            (Principal: ${{ payment.principal_amount.toLocaleString() }}, Interest: ${{ payment.interest_amount.toLocaleString() }})
+                                            Installment #{{ schedule.installment_number }} - 
+                                            Due: {{ formatDate(schedule.due_date) }} - 
+                                            Amount: ${{ schedule.due_amount.toLocaleString() }}
+                                            (Status: {{ formatStatus(schedule.status) }})
                                         </option>
                                     </select>
+                                    <p v-if="form.errors.loan_payment_schedule_id" class="mt-1 text-sm text-red-600">
+                                        {{ form.errors.loan_payment_schedule_id }}
+                                    </p>
                                 </div>
 
+                                <!-- Rest of the form fields remain the same -->
                                 <!-- Payment Amount -->
                                 <div>
                                     <label class="block text-sm font-medium text-gray-700 mb-2">
@@ -186,8 +214,8 @@
                                     <p v-if="form.errors.amount" class="mt-1 text-sm text-red-600">
                                         {{ form.errors.amount }}
                                     </p>
-                                    <p class="text-xs text-gray-500 mt-1" v-if="selectedScheduledPayment">
-                                        Scheduled amount: ${{ selectedScheduledPayment.amount.toLocaleString() }}
+                                    <p class="text-xs text-gray-500 mt-1" v-if="selectedSchedule">
+                                        Scheduled amount: ${{ selectedSchedule.due_amount.toLocaleString() }}
                                     </p>
                                 </div>
 
@@ -212,8 +240,8 @@
                                     </p>
                                 </div>
 
-                                <!-- Rest of the form remains the same -->
-                                <!-- ... (Principal Amount, Interest Amount, Payment Date, Due Date, Payment Method, Reference Number, Notes) ... -->
+                                <!-- Principal Amount, Interest Amount, Payment Date, Payment Method, Reference Number, Notes -->
+                                <!-- ... (keep the same as before) ... -->
 
                                 <!-- Principal Amount -->
                                 <div>
@@ -271,22 +299,6 @@
                                     >
                                     <p v-if="form.errors.payment_date" class="mt-1 text-sm text-red-600">
                                         {{ form.errors.payment_date }}
-                                    </p>
-                                </div>
-
-                                <!-- Due Date -->
-                                <div>
-                                    <label class="block text-sm font-medium text-gray-700 mb-2">
-                                        Due Date
-                                    </label>
-                                    <input 
-                                        type="date"
-                                        v-model="form.due_date"
-                                        class="w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
-                                        :class="{ 'border-red-300': form.errors.due_date }"
-                                    >
-                                    <p v-if="form.errors.due_date" class="mt-1 text-sm text-red-600">
-                                        {{ form.errors.due_date }}
                                     </p>
                                 </div>
 
@@ -370,10 +382,13 @@
                                             </p>
                                         </div>
                                     </div>
-                                    <div class="mt-3 text-xs text-gray-500" v-if="paymentType === 'scheduled' && selectedScheduledPayment">
-                                        <p>Scheduled Payment: ${{ selectedScheduledPayment.amount.toLocaleString() }}</p>
-                                        <p v-if="form.amount < selectedScheduledPayment.amount" class="text-yellow-600">
-                                            This is a partial payment. Remaining: ${{ (selectedScheduledPayment.amount - parseFloat(form.amount || 0)).toFixed(2) }}
+                                    <div class="mt-3 text-xs text-gray-500" v-if="paymentType === 'scheduled' && selectedSchedule">
+                                        <p>Scheduled Payment: ${{ selectedSchedule.due_amount.toLocaleString() }}</p>
+                                        <p v-if="form.amount < selectedSchedule.due_amount" class="text-yellow-600">
+                                            This is a partial payment. Remaining: ${{ (selectedSchedule.due_amount - parseFloat(form.amount || 0)).toFixed(2) }}
+                                        </p>
+                                        <p v-else-if="form.amount >= selectedSchedule.due_amount" class="text-green-600">
+                                            This payment will mark the scheduled installment as completed.
                                         </p>
                                     </div>
                                 </div>
@@ -411,7 +426,7 @@
 import AppLayout from '@/Layouts/AppLayout.vue';
 import PrimaryButton from '@/Components/PrimaryButton.vue';
 import SecondaryButton from '@/Components/SecondaryButton.vue';
-import { useForm } from '@inertiajs/vue3';
+import { useForm, router } from '@inertiajs/vue3';
 import { ref, computed, watch } from 'vue';
 
 const props = defineProps({
@@ -420,64 +435,75 @@ const props = defineProps({
 });
 
 const selectedLoan = ref(null);
-const selectedScheduledPaymentId = ref(null);
+const selectedScheduleId = ref(null);
 const paymentType = ref('regular');
 
 const form = useForm({
     loan_id: '',
+    loan_payment_schedule_id: null,
     amount: '',
     principal_amount: '',
     interest_amount: '',
     payment_date: new Date().toISOString().split('T')[0],
-    due_date: '',
-    status: 'completed',
     payment_method: '',
+    payment_type: 'adhoc',
     reference_number: '',
     notes: '',
-    scheduled_payment_id: null
+    status: 'completed'
 });
 
-// Computed property to get the selected scheduled payment
-const selectedScheduledPayment = computed(() => {
-    if (!selectedLoan.value || !selectedScheduledPaymentId.value) return null;
-    return selectedLoan.value.scheduled_payments.find(p => p.id == selectedScheduledPaymentId.value);
+// Computed property to get the selected schedule
+const selectedSchedule = computed(() => {
+    if (!selectedLoan.value || !selectedScheduleId.value || !selectedLoan.value.payment_schedules) return null;
+    return selectedLoan.value.payment_schedules.find(s => s.id == selectedScheduleId.value);
 });
 
 const onLoanChange = () => {
     selectedLoan.value = props.loans.find(loan => loan.id == form.loan_id);
-    selectedScheduledPaymentId.value = null;
+    selectedScheduleId.value = null;
     
     if (selectedLoan.value) {
+        // Reset form values first
+        form.amount = '';
+        form.principal_amount = '';
+        form.interest_amount = '';
+        form.loan_payment_schedule_id = null;
+        
         // Auto-select the first scheduled payment if available
-        if (selectedLoan.value.scheduled_payments.length > 0) {
+        if (selectedLoan.value.payment_schedules && selectedLoan.value.payment_schedules.length > 0) {
             paymentType.value = 'scheduled';
-            selectedScheduledPaymentId.value = selectedLoan.value.scheduled_payments[0].id;
-            onScheduledPaymentChange();
+            selectedScheduleId.value = selectedLoan.value.payment_schedules[0].id;
+            onScheduleChange();
         } else {
             paymentType.value = 'regular';
-        }
-        
-        if (!form.due_date) {
-            const dueDate = new Date();
-            dueDate.setDate(dueDate.getDate() + 30);
-            form.due_date = dueDate.toISOString().split('T')[0];
+            form.payment_type = 'adhoc';
         }
     }
 };
 
-const onScheduledPaymentChange = () => {
-    if (selectedScheduledPayment.value) {
-        form.amount = selectedScheduledPayment.value.amount;
-        form.due_date = selectedScheduledPayment.value.due_date;
-        form.principal_amount = selectedScheduledPayment.value.principal_amount;
-        form.interest_amount = selectedScheduledPayment.value.interest_amount;
-        form.scheduled_payment_id = selectedScheduledPayment.value.id;
+const onScheduleChange = () => {
+    if (selectedSchedule.value) {
+        // Auto-fill the payment amount
+        form.amount = selectedSchedule.value.due_amount;
+        
+        // Auto-fill principal and interest amounts
+        form.principal_amount = selectedSchedule.value.principal_amount;
+        form.interest_amount = selectedSchedule.value.interest_amount;
+        
+        // Set the scheduled payment ID for reference
+        form.loan_payment_schedule_id = selectedSchedule.value.id;
+        
+        // Set payment type to scheduled
+        form.payment_type = 'scheduled';
+        
+        // Auto-set status to completed for scheduled payments
+        form.status = 'completed';
     }
 };
 
 const getMaxAmount = () => {
-    if (paymentType.value === 'scheduled' && selectedScheduledPayment.value) {
-        return selectedScheduledPayment.value.amount;
+    if (paymentType.value === 'scheduled' && selectedSchedule.value) {
+        return selectedSchedule.value.due_amount;
     }
     return null;
 };
@@ -518,22 +544,35 @@ const statusBadgeClass = (status) => {
         'partial': 'bg-blue-100 text-blue-800',
         'active': 'bg-blue-100 text-blue-800',
         'disbursed': 'bg-purple-100 text-purple-800',
+        'overdue': 'bg-red-100 text-red-800',
+        'paid': 'bg-green-100 text-green-800',
     };
     return classes[status] || 'bg-gray-100 text-gray-800';
 };
 
 const submit = () => {
-    form.post(route('payments.store'));
+    form.post(route('payments.store'), {
+        onSuccess: () => {
+            // This will automatically redirect to payments.index as configured in the controller
+        },
+        onError: (errors) => {
+            // Errors will be displayed automatically via form.errors
+        }
+    });
 };
 
-// Watch payment type changes
+// Watch payment type changes to reset appropriately
 watch(paymentType, (newType) => {
     if (newType === 'regular') {
-        selectedScheduledPaymentId.value = null;
-        form.scheduled_payment_id = null;
+        selectedScheduleId.value = null;
+        form.loan_payment_schedule_id = null;
+        form.payment_type = 'adhoc';
         form.amount = '';
         form.principal_amount = '';
         form.interest_amount = '';
+    } else if (newType === 'scheduled' && selectedSchedule.value) {
+        // If switching to scheduled and we have a selected payment, auto-fill
+        onScheduleChange();
     }
 });
 </script>

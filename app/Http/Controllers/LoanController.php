@@ -210,7 +210,7 @@ public function reject(Loan $loan)
 
     return redirect()->back()->with('success', 'Loan rejected successfully!');
 }
- public function disburse(Loan $loan)
+public function disburse(Loan $loan)
 {
     if (!auth()->user()->can('disburse-loans')) {
         abort(403);
@@ -223,22 +223,22 @@ public function reject(Loan $loan)
     try {
         DB::beginTransaction();
 
-        // Calculate loan details using the model method
+        // Calculate loan details
         $loan->calculateLoanDetails();
         
-        // Update loan status and dates
+        // Update loan status
         $loan->update([
             'status' => 'disbursed',
             'disbursement_date' => now(),
             'due_date' => now()->addMonths($loan->term_months),
         ]);
 
-        // Create payment schedule
-        $this->createPaymentSchedule($loan);
+        // Generate payment schedule
+        $loan->generatePaymentSchedule();
 
         DB::commit();
 
-        return redirect()->back()->with('success', 'Loan disbursed successfully! Payment schedule created.');
+        return redirect()->back()->with('success', 'Loan disbursed successfully! Payment schedule generated.');
 
     } catch (\Exception $e) {
         DB::rollBack();

@@ -203,17 +203,24 @@
                                                 Interest: ${{ payment.interest_amount.toLocaleString() }}
                                             </div>
                                         </td>
-                                        <td class="px-6 py-4">
-                                            <div class="text-sm text-gray-900">
-                                                Due: {{ formatDate(payment.due_date) }}
-                                            </div>
-                                            <div class="text-sm text-gray-500" v-if="payment.payment_date">
-                                                Paid: {{ formatDate(payment.payment_date) }}
-                                            </div>
-                                            <div class="text-xs text-red-500" v-if="isOverdue(payment)">
-                                                Overdue
-                                            </div>
-                                        </td>
+                                     <!-- In the table body of Index.vue -->
+<td class="px-6 py-4">
+    <div class="text-sm text-gray-900">
+        Due: {{ payment.schedule ? formatDate(payment.schedule.due_date) : 'N/A' }}
+    </div>
+    <div class="text-sm text-gray-500" v-if="payment.payment_date">
+        Paid: {{ formatDate(payment.payment_date) }}
+    </div>
+    <div class="text-xs text-red-500 font-medium" v-if="isOverdue(payment)">
+        Overdue
+    </div>
+    <div class="text-xs text-yellow-500" v-else-if="isDueSoon(payment)">
+        Due Soon
+    </div>
+    <div class="text-xs text-gray-400" v-if="payment.schedule">
+        Installment #{{ payment.schedule.installment_number }}
+    </div>
+</td>
                                         <td class="px-6 py-4 whitespace-nowrap">
                                             <span :class="statusBadgeClass(payment.status)" class="px-2 py-1 text-xs font-medium rounded-full">
                                                 {{ formatStatus(payment.status) }}
@@ -390,11 +397,32 @@ const statusBadgeClass = (status) => {
     return classes[status] || 'bg-gray-100 text-gray-800';
 };
 
+// In the script section of Index.vue
 const isOverdue = (payment) => {
-    if (payment.status === 'completed') return false;
-    const dueDate = new Date(payment.due_date);
-    const today = new Date();
-    return dueDate < today;
+    if (payment.status === 'completed' || payment.status === 'cancelled') return false;
+    
+    // For scheduled payments, check the schedule due date
+    if (payment.schedule && payment.schedule.due_date) {
+        const dueDate = new Date(payment.schedule.due_date);
+        const today = new Date();
+        return dueDate < today;
+    }
+    
+    return false;
+};
+
+const isDueSoon = (payment) => {
+    if (payment.status !== 'pending') return false;
+    
+    // For scheduled payments, check the schedule due date
+    if (payment.schedule && payment.schedule.due_date) {
+        const dueDate = new Date(payment.schedule.due_date);
+        const today = new Date();
+        const daysUntilDue = Math.ceil((dueDate - today) / (1000 * 60 * 60 * 24));
+        return daysUntilDue <= 7 && daysUntilDue > 0;
+    }
+    
+    return false;
 };
 
 const markAsPaid = (payment) => {
