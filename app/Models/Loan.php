@@ -48,7 +48,10 @@ class Loan extends Model
     {
         return $this->hasMany(LoanPayment::class);
     }
-
+    public function guarantor()
+    {
+        return $this->hasOne(Guarantor::class);
+    }
     /**
      * Calculate loan details including monthly payment, total amount, etc.
      */
